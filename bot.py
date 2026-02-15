@@ -4,8 +4,8 @@ import time
 import json
 import re
 
-TOKEN = "ТВІЙ_TOKEN"
-CHAT_ID = "ТВІЙ_CHAT_ID"
+TOKEN = "8469023268:AAEi-dahnEE0XzsuroEA2xLkf1KtbYg81Aw"
+CHAT_ID = "453173481"
 
 BASE_URL = "https://auto.bazos.sk/"
 MIN_PRICE = 500
