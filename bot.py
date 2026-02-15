@@ -1,41 +1,33 @@
 import requests
 from bs4 import BeautifulSoup
+import json
 import time
 import re
-import json
-import os
 
 # =========================
-# НАЛАШТУВАННЯ
+# Налаштування
 # =========================
-
 TOKEN = "8469023268:AAEi-dahnEE0XzsuroEA2xLkf1KtbYg81Aw"
 CHAT_ID = "453173481"
-
-URL = "https://auto.bazos.sk/"
+BASE_URL = "https://auto.bazos.sk/"
+CATEGORY = "auta"  # можна змінити на потрібну категорію
 MIN_PRICE = 500
-
+CHECK_INTERVAL = 180  # секунд між перевірками
+NUM_PAGES = 50       # скільки сторінок перевіряти
 SAVE_FILE = "seen_ads.json"
-CHECK_INTERVAL = 180  # кожні 3 хвилини
 
 # =========================
-# ЗАВАНТАЖЕННЯ ІСТОРІЇ
+# Завантаження історії
 # =========================
-
-if os.path.exists(SAVE_FILE):
+try:
     with open(SAVE_FILE, "r") as f:
-        seen_links = set(json.load(f))
-else:
-    seen_links = set()
+        seen_ids = set(json.load(f))
+except:
+    seen_ids = set()
 
 # =========================
-# ФУНКЦІЇ
+# Функції
 # =========================
-
-def save_seen():
-    with open(SAVE_FILE, "w") as f:
-        json.dump(list(seen_links), f)
-
 def send_message(text):
     api_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     requests.post(api_url, data={
@@ -43,52 +35,65 @@ def send_message(text):
         "text": text
     })
 
-def extract_price(price_text):
-    nums = re.findall(r"\d+", price_text.replace(" ", ""))
+def save_seen():
+    with open(SAVE_FILE, "w") as f:
+        json.dump(list(seen_ids), f)
+
+def extract_price(text):
+    nums = re.findall(r"\d+", text.replace(" ", ""))
     if nums:
         return int("".join(nums))
     return 0
 
 # =========================
-# ГОЛОВНИЙ ЦИКЛ
+# Головний цикл
 # =========================
-
 print("🚀 Бот запущений...")
 
 while True:
     try:
-        response = requests.get(URL, timeout=10)
-        soup = BeautifulSoup(response.text, "html.parser")
+        for page in range(1, NUM_PAGES + 1):
+            url = f"{BASE_URL}{CATEGORY}/?page={page}"
+            resp = requests.get(url, timeout=10)
+            soup = BeautifulSoup(resp.text, "html.parser")
 
-        ads = soup.select(".inzeraty.inzeratyflex")
+            # Кожне оголошення
+            ads = soup.find_all("div", class_="inzerat")  # основний блок оголошення
+            for ad in ads:
+                # Пропускаємо топові оголошення
+                if ad.find(class_="top"):
+                    continue
 
-        for ad in ads[:20]:
-            title = ad.select_one("h2").text.strip()
+                # Отримуємо ID з посилання
+                link_tag = ad.find("a", href=True)
+                if not link_tag:
+                    continue
+                link = link_tag["href"]
+                ad_id_match = re.search(r'/(\d+)\.html', link)
+                if not ad_id_match:
+                    continue
+                ad_id = ad_id_match.group(1)
 
-            link = ad.select_one("a")["href"]
-            full_link = "https://auto.bazos.sk" + link
+                if ad_id in seen_ids:
+                    continue
 
-            price_text = ad.select_one(".inzeratycena").text.strip()
-            price = extract_price(price_text)
+                # Отримуємо title та ціну
+                title_tag = ad.find("h3")
+                title = title_tag.text.strip() if title_tag else "Без назви"
 
-            if price < MIN_PRICE:
-                continue
+                price_tag = ad.find("p", class_="cena")
+                price = extract_price(price_tag.text) if price_tag else 0
+                if price < MIN_PRICE:
+                    continue
 
-            if full_link not in seen_links:
-                seen_links.add(full_link)
-                save_seen()
-
-                msg = (
-                    f"🚗 Нове авто ({price}€+)\n\n"
-                    f"{title}\n"
-                    f"💰 {price_text}\n"
-                    f"🔗 {full_link}"
-                )
-
+                # Відправляємо повідомлення
+                msg = f"🚗 Нове авто ({price}€+)\n\n{title}\n💰 {price}€\n🔗 {link}"
                 send_message(msg)
                 print("Відправлено:", title)
 
-        print("✅ Перевірено, чекаю...")
+                # Додаємо до історії
+                seen_ids.add(ad_id)
+                save_seen()
 
     except Exception as e:
         print("❌ Помилка:", e)
