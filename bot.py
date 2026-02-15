@@ -13,7 +13,7 @@ BASE_URL = "https://auto.bazos.sk/"
 CATEGORY = "auta"  # можна змінити на потрібну категорію
 MIN_PRICE = 500
 CHECK_INTERVAL = 180  # секунд між перевірками
-NUM_PAGES = 50       # скільки сторінок перевіряти
+NUM_PAGES = 10       # скільки сторінок перевіряти
 SAVE_FILE = "seen_ads.json"
 
 # =========================
