@@ -1,101 +1,102 @@
 import requests
 from bs4 import BeautifulSoup
-import json
 import time
+import json
 import re
 
-# =========================
-# Налаштування
-# =========================
-TOKEN = "8469023268:AAEi-dahnEE0XzsuroEA2xLkf1KtbYg81Aw"
-CHAT_ID = "453173481"
-BASE_URL = "https://auto.bazos.sk/"
-CATEGORY = "auta"  # можна змінити на потрібну категорію
-MIN_PRICE = 500
-CHECK_INTERVAL = 180  # секунд між перевірками
-NUM_PAGES = 10       # скільки сторінок перевіряти
-SAVE_FILE = "seen_ads.json"
+TOKEN = "ТВІЙ_TOKEN"
+CHAT_ID = "ТВІЙ_CHAT_ID"
 
-# =========================
-# Завантаження історії
-# =========================
+BASE_URL = "https://auto.bazos.sk/"
+MIN_PRICE = 500
+
+PAGES = 10
+INTERVAL = 120  # 2 хв
+
+SAVE_FILE = "seen.json"
+
+
+# ---------------- Load seen ----------------
 try:
     with open(SAVE_FILE, "r") as f:
-        seen_ids = set(json.load(f))
+        seen = set(json.load(f))
 except:
-    seen_ids = set()
+    seen = set()
 
-# =========================
-# Функції
-# =========================
-def send_message(text):
-    api_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    requests.post(api_url, data={
-        "chat_id": CHAT_ID,
-        "text": text
-    })
 
 def save_seen():
     with open(SAVE_FILE, "w") as f:
-        json.dump(list(seen_ids), f)
+        json.dump(list(seen), f)
+
+
+def send(msg):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+
 
 def extract_price(text):
-    nums = re.findall(r"\d+", text.replace(" ", ""))
-    if nums:
-        return int("".join(nums))
-    return 0
+    m = re.search(r"(\d+)\s*€", text.replace(" ", ""))
+    if m:
+        return int(m.group(1))
+    return None
 
-# =========================
-# Головний цикл
-# =========================
-print("🚀 Бот запущений...")
+
+def extract_id(link):
+    m = re.search(r"/(\d+)\.html", link)
+    return m.group(1) if m else None
+
+
+print("🚀 Auto bot started...")
+
 
 while True:
     try:
-        for page in range(1, NUM_PAGES + 1):
-            url = f"{BASE_URL}{CATEGORY}/?page={page}"
-            resp = requests.get(url, timeout=10)
-            soup = BeautifulSoup(resp.text, "html.parser")
+        for page in range(0, PAGES):
 
-            # Кожне оголошення
-            ads = soup.find_all("div", class_="inzerat")  # основний блок оголошення
+            url = f"{BASE_URL}{page*20}/"
+            html = requests.get(url, timeout=10).text
+
+            soup = BeautifulSoup(html, "html.parser")
+
+            ads = soup.find_all("div", class_="inzerat")
+
             for ad in ads:
-                # Пропускаємо топові оголошення
-                if ad.find(class_="top"):
+
+                # ❌ Пропускаємо TOP
+                if "inzeratynad" in str(ad):
                     continue
 
-                # Отримуємо ID з посилання
-                link_tag = ad.find("a", href=True)
-                if not link_tag:
-                    continue
-                link = link_tag["href"]
-                ad_id_match = re.search(r'/(\d+)\.html', link)
-                if not ad_id_match:
-                    continue
-                ad_id = ad_id_match.group(1)
-
-                if ad_id in seen_ids:
+                a = ad.find("a", href=True)
+                if not a:
                     continue
 
-                # Отримуємо title та ціну
-                title_tag = ad.find("h3")
-                title = title_tag.text.strip() if title_tag else "Без назви"
+                link = a["href"]
+                ad_id = extract_id(link)
 
-                price_tag = ad.find("p", class_="cena")
-                price = extract_price(price_tag.text) if price_tag else 0
-                if price < MIN_PRICE:
+                if not ad_id or ad_id in seen:
                     continue
 
-                # Відправляємо повідомлення
-                msg = f"🚗 Нове авто ({price}€+)\n\n{title}\n💰 {price}€\n🔗 {link}"
-                send_message(msg)
-                print("Відправлено:", title)
+                title = a.get_text(strip=True)
 
-                # Додаємо до історії
-                seen_ids.add(ad_id)
+                price_tag = ad.find("div", class_="inzeratycena")
+                if not price_tag:
+                    continue
+
+                price = extract_price(price_tag.get_text())
+
+                if price is None or price < MIN_PRICE:
+                    continue
+
+                msg = f"🚗 НОВЕ авто ≥{MIN_PRICE}€\n\n{title}\n💶 {price}€\n{link}"
+                send(msg)
+
+                print("Sent:", title)
+
+                seen.add(ad_id)
                 save_seen()
 
-    except Exception as e:
-        print("❌ Помилка:", e)
+        time.sleep(INTERVAL)
 
-    time.sleep(CHECK_INTERVAL)
+    except Exception as e:
+        print("Error:", e)
+        time.sleep(60)
